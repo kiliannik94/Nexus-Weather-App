@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Nexus Weather</title>
+
+  <!-- iOS PWA Einstellungen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NexusWeather">
+  <meta name="theme-color" content="#090d16">
+
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      padding-top: max(env(safe-area-inset-top), 1rem);
+      padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .panel {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+    }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-[#090d16] text-slate-100 min-h-screen flex flex-col items-center">
+
+  <!-- ================= HAUPTANSICHT ================= -->
+  <div id="viewMain" class="w-full max-w-md px-4 flex flex-col gap-4 pb-10">
+
+    <!-- Header: Suche, GPS & Analyse-Button -->
+    <header class="w-full pt-1 flex items-center gap-2">
+      <div class="relative flex-1">
+        <input id="citySearch" type="text" placeholder="Ort oder Region suchen..."
+               class="w-full bg-white/5 border border-white/10 rounded-2xl py-2.5 pl-10 pr-10 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
+        <button onclick="requestCurrentLocation()" class="absolute right-3 top-2.5 text-teal-400 active:scale-90 transition">
+          <i data-lucide="crosshair" class="w-5 h-5"></i>
+        </button>
+        <div id="suggestions" class="absolute w-full mt-2 panel rounded-2xl overflow-hidden shadow-2xl hidden z-50 divide-y divide-white/5"></div>
+      </div>
+      <button onclick="openHistoryView()" title="Historische Treffsicherheit" class="panel p-2.5 rounded-2xl text-teal-400 active:scale-90 transition border border-teal-500/20 hover:border-teal-400/50 flex items-center gap-1">
+        <i data-lucide="history" class="w-5 h-5"></i>
+      </button>
+    </header>
+
+    <!-- Wetter Hero Ansicht -->
+    <section class="text-center pt-2 pb-1 flex flex-col items-center">
+      <div class="flex items-center justify-center gap-1.5">
+        <h1 id="locationName" class="text-2xl font-semibold tracking-tight text-white">Lade Standort...</h1>
+        <i id="gpsIcon" data-lucide="navigation" class="w-3.5 h-3.5 text-teal-400 hidden"></i>
+      </div>
+      <p id="currentSummary" class="text-sm text-slate-400 font-medium capitalize mt-1">Wetterdaten synchronisieren...</p>
+      
+      <div class="my-2 flex items-center justify-center gap-3.5">
+        <div id="currentIconWrapper" class="flex items-center justify-center">
+          <i data-lucide="sun" class="w-14 h-14 text-amber-400"></i>
+        </div>
+        <div class="flex items-baseline">
+          <span id="currentTemp" class="text-7xl font-bold tracking-tighter text-white">--</span>
+          <span class="text-4xl font-light text-teal-400">°</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 text-xs text-slate-300 font-medium">
+        <span>Max: <strong id="todayHigh" class="text-white">--°</strong></span>
+        <span>Min: <strong id="todayLow" class="text-white">--°</strong></span>
+        <span>•</span>
+        <span id="calibrationBadge" class="text-teal-400 font-semibold tracking-wide">60-Tage Kalibrierung...</span>
+      </div>
+    </section>
+
+    <!-- Stündliche Vorhersage -->
+    <section class="panel rounded-3xl p-4">
+      <div class="flex items-center justify-between text-xs text-slate-300 font-semibold mb-2 border-b border-white/5 pb-2.5">
+        <div class="flex items-center gap-2">
+          <span id="hourlyCurrentDayBadge" class="text-[11px] font-bold text-teal-300 bg-teal-500/20 px-2 py-0.5 rounded-lg">Heute</span>
+          <span class="text-[11px] font-normal text-slate-400">Stundenverlauf</span>
+        </div>
+        <button onclick="scrollToCurrentHour()" class="text-[10px] text-teal-400 hover:text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-md active:scale-95 transition flex items-center gap-1">
+          <i data-lucide="target" class="w-3 h-3"></i>
+          <span>Zu Jetzt</span>
+        </button>
+      </div>
+
+      <div class="relative flex items-center group">
+        <button onclick="scrollHourly(-220)" class="absolute -left-2 z-20 w-7 h-7 rounded-full bg-slate-900/90 border border-white/20 text-white flex items-center justify-center shadow-lg active:scale-90 transition opacity-80 hover:opacity-100">
+          <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </button>
+
+        <div id="hourlyContainer" class="flex gap-2.5 overflow-x-auto hide-scrollbar py-1 text-center scroll-smooth w-full px-4"></div>
+
+        <button onclick="scrollHourly(220)" class="absolute -right-2 z-20 w-7 h-7 rounded-full bg-slate-900/90 border border-white/20 text-white flex items-center justify-center shadow-lg active:scale-90 transition opacity-80 hover:opacity-100">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </section>
+
+    <!-- 10-Tage Trend mit perfekt ausgerichteten Spalten-Headern -->
+    <section class="panel rounded-3xl p-4">
+      <div class="flex items-center justify-between text-xs text-slate-300 font-semibold mb-3">
+        <div class="flex items-center gap-1.5 uppercase tracking-wider text-teal-400">
+          <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+          <span>10-Tage Trend</span>
+        </div>
+        <span class="text-[10px] text-slate-400 font-normal">Tipp für Modellvergleich</span>
+      </div>
+
+      <!-- Spalten-Header: Direkt über den Elementen -->
+      <div class="flex items-center justify-between text-[11px] text-slate-400 font-medium px-2 pb-2 border-b border-white/10 mb-1">
+        <span class="w-14 text-left">Tag</span>
+        
+        <!-- Zentriert über der Kapsel -->
+        <div class="flex items-center justify-between w-[172px] px-2 text-[10px]">
+          <div class="flex items-center gap-1 text-amber-300/90 font-medium">
+            <i data-lucide="sunrise" class="w-3 h-3"></i>
+            <span>Früh</span>
+          </div>
+          <div class="flex items-center gap-1 text-sky-300/90 font-medium">
+            <i data-lucide="sun" class="w-3 h-3"></i>
+            <span>Nachm.</span>
+          </div>
+          <div class="flex items-center gap-1 text-indigo-300/90 font-medium">
+            <i data-lucide="moon" class="w-3 h-3"></i>
+            <span>Nacht</span>
+          </div>
+        </div>
+
+        <span class="flex-1 text-right text-[10px] text-slate-400 pr-4">Min / Max</span>
+      </div>
+
+      <!-- 10-Tage Liste -->
+      <div id="dailyContainer" class="divide-y divide-white/5 text-sm"></div>
+    </section>
+
+    <!-- Zusatzdaten -->
+    <section class="grid grid-cols-2 gap-3">
+      <div class="panel rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center gap-1.5 text-xs text-slate-400 uppercase tracking-wider font-semibold">
+          <i data-lucide="wind" class="w-3.5 h-3.5 text-teal-400"></i>
+          <span>Windstärke</span>
+        </div>
+        <div class="my-2">
+          <span id="windSpeed" class="text-3xl font-bold text-white">--</span>
+          <span class="text-xs text-slate-400"> km/h</span>
+        </div>
+        <span class="text-xs text-teal-400/80">Gewichteter Schnitt</span>
+      </div>
+
+      <div class="panel rounded-2xl p-4 flex flex-col justify-between">
+        <div class="flex items-center gap-1.5 text-xs text-slate-400 uppercase tracking-wider font-semibold">
+          <i data-lucide="droplets" class="w-3.5 h-3.5 text-teal-400"></i>
+          <span>Luftfeuchte</span>
+        </div>
+        <div class="my-2">
+          <span id="humidityVal" class="text-3xl font-bold text-white">--</span>
+          <span class="text-xs text-slate-400"> %</span>
+        </div>
+        <span class="text-xs text-teal-400/80" id="apparentTemp">Gefühlt --°</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ================= HISTORIE & SCOREBOARD ANSICHT ================= -->
+  <div id="viewHistory" class="w-full max-w-md px-4 flex flex-col gap-4 pb-12 hidden">
+    <header class="w-full pt-2 flex items-center justify-between border-b border-white/10 pb-3">
+      <div class="flex items-center gap-2">
+        <button onclick="closeHistoryView()" class="panel p-2 rounded-xl text-slate-300 active:scale-90 transition">
+          <i data-lucide="arrow-left" class="w-5 h-5"></i>
+        </button>
+        <div>
+          <h2 class="text-lg font-bold text-white leading-tight">Historische Treffsicherheit</h2>
+          <p class="text-xs text-teal-400">Backtest der letzten 60 Tage (2 Monate)</p>
+        </div>
+      </div>
+      <span class="text-[10px] bg-teal-500/20 text-teal-300 px-2.5 py-1 rounded-full uppercase font-bold">DWD / ERA5</span>
+    </header>
+
+    <div class="panel rounded-3xl p-4">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-1">Dynamisches Gesamtranking</h3>
+      <p class="text-[11px] text-slate-400 mb-3">Diese Quoten steuern automatisch das Stimmgewicht der Modelle in der Vorhersage.</p>
+      <div id="leaderboardList" class="space-y-2.5">
+        <div class="text-center py-6 text-xs text-slate-400">Berechne 60-Tage Quoten...</div>
+      </div>
+    </div>
+
+    <div class="panel rounded-3xl p-4">
+      <div class="flex items-center justify-between mb-3 border-b border-white/5 pb-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-teal-400">Letzte Tage im Detail</h3>
+        <span class="text-[10px] text-slate-400">Tipp für Tagesabgleich</span>
+      </div>
+      <div id="pastDaysContainer" class="divide-y divide-white/5 text-sm">
+        <div class="text-center py-6 text-xs text-slate-400">Lade Messdaten...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= DETAIL-MODAL ================= -->
+  <div id="detailModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-end justify-center hidden" onclick="closeModal(event)">
+    <div id="modalSheet" class="bg-[#111625] border-t border-white/10 w-full max-w-md rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto flex flex-col shadow-2xl transition-all" onclick="event.stopPropagation()">
+      
+      <!-- Modal Header -->
+      <div class="flex justify-between items-center mb-3 pb-2.5 border-b border-white/10">
+        <div class="flex items-center gap-2">
+          <button id="btnPrevDay" onclick="navigateDay(-1)" class="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hidden active:scale-90 transition">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+          </button>
+          
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="modalTypeBadge" class="text-[10px] font-bold uppercase tracking-wider bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-md">Vorschau</span>
+              <span id="swipeHint" class="text-[10px] text-slate-500 hidden">← Wischen für Tage →</span>
+            </div>
+            <h3 id="modalTitle" class="text-lg font-bold text-white mt-0.5">Vorhersage</h3>
+            <p id="modalSub" class="text-xs text-slate-400">Abgleich aktiver Plattformen</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button id="btnNextDay" onclick="navigateDay(1)" class="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hidden active:scale-90 transition">
+            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+          
+          <button onclick="document.getElementById('detailModal').classList.add('hidden')" class="p-2 rounded-xl bg-white/5 active:bg-white/10 transition">
+            <i data-lucide="x" class="w-5 h-5 text-slate-300"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2-Stunden Zeitleiste -->
+      <div id="dayTimelineSection" class="hidden mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="text-xs uppercase text-teal-400 font-semibold tracking-wider">Tagesverlauf (2-Stunden-Takt)</h4>
+          <span class="text-[10px] text-slate-400">Horizontal scrollen</span>
+        </div>
+        
+        <div class="relative flex items-center group">
+          <button onclick="scrollDayTimeline(-160)" class="absolute -left-1.5 z-20 w-6 h-6 rounded-full bg-slate-900/90 border border-white/20 text-white flex items-center justify-center shadow-lg active:scale-90 transition opacity-80 hover:opacity-100">
+            <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+          </button>
+
+          <div id="dayTimelineContainer" class="flex gap-2 overflow-x-auto hide-scrollbar py-1 text-center bg-white/5 p-2 rounded-2xl border border-white/5 w-full px-3 scroll-smooth"></div>
+
+          <button onclick="scrollDayTimeline(160)" class="absolute -right-1.5 z-20 w-6 h-6 rounded-full bg-slate-900/90 border border-white/20 text-white flex items-center justify-center shadow-lg active:scale-90 transition opacity-80 hover:opacity-100">
+            <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Info-Box: Regenrisiko immer in Blau -->
+      <div id="modalStatsBox" class="bg-teal-950/40 rounded-2xl p-3.5 mb-4 border border-teal-500/20">
+        <div class="grid grid-cols-3 gap-2 text-center divide-x divide-white/10">
+          <div>
+            <div class="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+              <i data-lucide="sunrise" class="w-3.5 h-3.5 text-amber-300"></i>
+              <span>Früh</span>
+            </div>
+            <div class="mt-1 flex flex-col items-center">
+              <span id="modalMorningProb" class="text-xl font-bold text-sky-400">--%</span>
+              <span class="text-[9px] text-slate-400 font-medium">06–12 Uhr</span>
+            </div>
+          </div>
+          <div class="pl-2">
+            <div class="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+              <i data-lucide="sun" class="w-3.5 h-3.5 text-amber-400"></i>
+              <span>Nachm.</span>
+            </div>
+            <div class="mt-1 flex flex-col items-center">
+              <span id="modalNoonProb" class="text-xl font-bold text-sky-400">--%</span>
+              <span class="text-[9px] text-slate-400 font-medium">12–22 Uhr</span>
+            </div>
+          </div>
+          <div class="pl-2">
+            <div class="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-300">
+              <i data-lucide="moon" class="w-3.5 h-3.5 text-indigo-300"></i>
+              <span>Nacht</span>
+            </div>
+            <div class="mt-1 flex flex-col items-center">
+              <span id="modalNightProb" class="text-xl font-bold text-sky-400">--%</span>
+              <span class="text-[9px] text-slate-400 font-medium">22–06 Uhr</span>
+            </div>
+          </div>
+        </div>
+        <p id="modalProbabilityText" class="text-xs text-slate-300 leading-relaxed mt-2.5 pt-2 border-t border-white/5">
+          Berechnung läuft...
+        </p>
+      </div>
+
+      <!-- Liste der Quellen -->
+      <div class="flex items-center justify-between mb-2">
+        <h4 id="modelBreakdownTitle" class="text-xs uppercase text-slate-400 font-semibold tracking-wider">Verfügbare Plattformen</h4>
+        <span id="activeSourcesCount" class="text-[11px] text-teal-400/90 font-medium"></span>
+      </div>
+      <div id="modelBreakdown" class="space-y-2 text-sm"></div>
+    </div>
+  </div>
+
+  <script>
+    // 10 globale Wettermodelle mit theoretischem Basis-Gewicht (Base-Weight)
+    const MODEL_DEFINITIONS = [
+      { id: 'ecmwf_ifs025', name: 'ECMWF IFS', provider: 'Europäisches Zentrum (EZMW)', baseWeight: 3.0, badge: '★ Spitzenmodell' },
+      { id: 'icon_seamless', name: 'DWD ICON', provider: 'Deutscher Wetterdienst (Global)', baseWeight: 2.5, badge: '★ Hohe Präzision' },
+      { id: 'icon_eu', name: 'DWD ICON-EU', provider: 'DWD Europa Feinraster (7km)', baseWeight: 2.5, badge: '★ Regionalmodell' },
+      { id: 'meteofrance_seamless', name: 'Météo-France', provider: 'Météo-France', baseWeight: 2.0, badge: 'Standard' },
+      { id: 'ukmo_seamless', name: 'UK Met Office', provider: 'UK Met Office', baseWeight: 2.0, badge: 'Standard' },
+      { id: 'gfs_seamless', name: 'NOAA GFS', provider: 'US Weather Service (NWS)', baseWeight: 1.5, badge: 'Global Standard' },
+      { id: 'gem_seamless', name: 'GEM Global', provider: 'Environment Canada', baseWeight: 1.5, badge: 'Global' },
+      { id: 'jma_seamless', name: 'JMA GSM', provider: 'Japan Meteorological Agency', baseWeight: 1.2, badge: 'Global' },
+      { id: 'bom_access_global_seamless', name: 'BOM ACCESS', provider: 'Bureau of Meteorology Australien', baseWeight: 1.0, badge: 'Ergänzung' },
+      { id: 'icon_d2', name: 'DWD ICON-D2', provider: 'DWD Lokal Feinraster (2km)', baseWeight: 3.0, badge: '★ Kurzfrist-Radar' }
+    ];
+
+    let currentCoords = { lat: 47.5596, lon: 7.5886, name: "Basel" };
+    let baseData = null;
+    let hourlyModelsData = {};
+    let dailyModelsData = {};
+    let historyArchiveData = null;
+    let historyModelsData = [];
+    let currentSelectedDayIndex = null;
+
+    // Dynamische Modell-Gewichte (werden live aus 60 Tagen Historie kalkuliert)
+    let dynamicModelScores = {}; // modelId -> { accuracy, avgDev, dynamicWeight, samples }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      setupSearch();
+      setupModalSwipeGestures();
+
+      const saved = localStorage.getItem("nexus_weather_loc");
+      if (saved) {
+        try { currentCoords = JSON.parse(saved); } catch(e){}
+      }
+
+      // Initialisiere Standardgewichte
+      initDefaultWeights();
+      loadCachedScores();
+      requestCurrentLocation();
+    });
+
+    function initDefaultWeights() {
+      MODEL_DEFINITIONS.forEach(m => {
+        if (!dynamicModelScores[m.id]) {
+          dynamicModelScores[m.id] = {
+            accuracy: 80,
+            avgDev: 1.5,
+            dynamicWeight: m.baseWeight,
+            samples: 0
+          };
+        }
+      });
+    }
+
+    function loadCachedScores() {
+      const key = `nexus_scores_${currentCoords.lat.toFixed(2)}_${currentCoords.lon.toFixed(2)}`;
+      const cached = localStorage.getItem(key);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && (Date.now() - parsed.timestamp) < 24 * 3600 * 1000) { // 24h gültig
+            dynamicModelScores = parsed.scores;
+            document.getElementById('calibrationBadge').innerText = "60-Tage Kalibriert ✓";
+          }
+        } catch(e){}
+      }
+    }
+
+    function saveCachedScores() {
+      const key = `nexus_scores_${currentCoords.lat.toFixed(2)}_${currentCoords.lon.toFixed(2)}`;
+      try {
+        localStorage.setItem(key, JSON.stringify({
+          timestamp: Date.now(),
+          scores: dynamicModelScores
+        }));
+      } catch(e){}
+    }
+
+    // 1. Standort
+    function requestCurrentLocation() {
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            currentCoords.lat = pos.coords.latitude;
+            currentCoords.lon = pos.coords.longitude;
+            document.getElementById('gpsIcon').classList.remove('hidden');
+
+            currentCoords.name = await reverseGeocode(currentCoords.lat, currentCoords.lon);
+            localStorage.setItem("nexus_weather_loc", JSON.stringify(currentCoords));
+            loadCachedScores();
+            fetchWeatherData();
+          },
+          () => fetchWeatherData(),
+          { timeout: 6000, enableHighAccuracy: true }
+        );
+      } else {
+        fetchWeatherData();
+      }
+    }
+
+    async function reverseGeocode(lat, lon) {
+      try {
+        const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=de`);
+        const d = await res.json();
+        return d.city || d.locality || d.principalSubdivision || "Mein Ort";
+      } catch (e) {
+        return "Mein Ort";
+      }
+    }
+
+    // 2. Wetterdaten laden
+    async function fetchWeatherData() {
+      document.getElementById('locationName').innerText = currentCoords.name;
+      document.getElementById('currentSummary').innerText = "Berechne gewichtete Modelle...";
+
+      const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,precipitation,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum&past_days=2&forecast_days=10&timezone=auto`;
+
+      try {
+        const res = await fetch(baseUrl);
+        if (!res.ok) throw new Error("Basis-API fehlgeschlagen");
+        baseData = await res.json();
+
+        renderBaseUI();
+        loadAllModels();
+
+        // 60-Tage Kalibrierung im Hintergrund anstoßen
+        calibrateWeightsFrom60DaysHistory();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('locationName').innerText = "Fehler";
+        document.getElementById('currentSummary').innerText = "Wetterdaten konnten nicht geladen werden.";
+      }
+    }
+
+    async function loadAllModels() {
+      hourlyModelsData = {};
+      dailyModelsData = {};
+
+      const promises = MODEL_DEFINITIONS.map(async (m) => {
+        try {
+          const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&hourly=temperature_2m,precipitation&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&past_days=2&forecast_days=10&models=${m.id}&timezone=auto`;
+          const r = await fetch(url);
+          if (!r.ok) return null;
+          const data = await r.json();
+          return { id: m.id, hourly: data.hourly, daily: data.daily };
+        } catch {
+          return null;
+        }
+      });
+
+      const results = await Promise.allSettled(promises);
+      results.forEach(res => {
+        if (res.status === 'fulfilled' && res.value) {
+          if (res.value.hourly) hourlyModelsData[res.value.id] = res.value.hourly;
+          if (res.value.daily) dailyModelsData[res.value.id] = res.value.daily;
+        }
+      });
+
+      updateEnsembleAverages();
+    }
+
+    // ================= DYNAMISCHE 60-TAGE KALIBRIERUNG =================
+    async function calibrateWeightsFrom60DaysHistory() {
+      try {
+        const pastDays = 60; // 2 Monate
+        const now = new Date();
+        const endDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const startDate = new Date(now.getTime() - pastDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        // 1. Reale Messdaten der letzten 60 Tage (ERA5 / Messstationen)
+        const truthUrl = `https://archive-api.open-meteo.com/v1/archive?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&start_date=${startDate}&end_date=${endDate}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto`;
+        
+        // 2. Was die Modelle damals prognostiziert haben (Historical Forecast API)
+        const modelPromises = MODEL_DEFINITIONS.map(async m => {
+          try {
+            const mUrl = `https://historical-forecast-api.open-meteo.com/v1/forecast?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&start_date=${startDate}&end_date=${endDate}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&models=${m.id}&timezone=auto`;
+            const res = await fetch(mUrl);
+            if (!res.ok) return null;
+            const d = await res.json();
+            return { id: m.id, name: m.name, provider: m.provider, baseWeight: m.baseWeight, daily: d.daily };
+          } catch {
+            return null;
+          }
+        });
+
+        const [truthRes, ...modelsRes] = await Promise.all([
+          fetch(truthUrl).then(r => r.json()),
+          ...modelPromises
+        ]);
+
+        if (!truthRes || !truthRes.daily) return;
+
+        historyArchiveData = truthRes.daily;
+        historyModelsData = modelsRes.filter(m => m && m.daily);
+
+        const totalDays = historyArchiveData.time.length;
+
+        // Trefferquoten der letzten 60 Tage auswerten
+        historyModelsData.forEach(m => {
+          let hits = 0;
+          let count = 0;
+          let deviations = [];
+
+          for (let d = 0; d < totalDays; d++) {
+            const tMax = historyArchiveData.temperature_2m_max[d];
+            const pMax = m.daily.temperature_2m_max ? m.daily.temperature_2m_max[d] : null;
+
+            if (tMax !== null && pMax !== null && pMax !== undefined) {
+              const diff = Math.abs(pMax - tMax);
+              deviations.push(diff);
+
+              const tRain = (historyArchiveData.precipitation_sum[d] || 0) >= 0.5;
+              const pRain = ((m.daily.precipitation_sum && m.daily.precipitation_sum[d]) || 0) >= 0.5;
+
+              // Volltreffer: Temperatur ±1.5°C UND Regen ja/nein exakt richtig
+              if (diff <= 1.5 && (tRain === pRain)) {
+                hits += 1.0;
+              } else if (diff <= 2.5 && (tRain === pRain)) {
+                hits += 0.7;
+              } else if (diff <= 2.0) {
+                hits += 0.5;
+              }
+              count++;
+            }
+          }
+
+          if (count > 0) {
+            const rawAccuracy = Math.round((hits / count) * 100);
+            const accuracy = Math.min(98, Math.max(50, rawAccuracy));
+            const avgDev = deviations.length ? (deviations.reduce((a, b) => a + b, 0) / deviations.length).toFixed(1) : 1.5;
+
+            // Multiplikator berechnen: Modelle mit hoher Trefferquote erhalten Boost (Faktor 0.8 bis 1.4)
+            // Beispiel: 85% Trefferquote => Multiplikator 1.2x auf das Basisgewicht
+            const multiplier = Math.max(0.7, Math.min(1.4, (accuracy / 75)));
+            const dynamicWeight = parseFloat((m.baseWeight * multiplier).toFixed(2));
+
+            dynamicModelScores[m.id] = {
+              accuracy,
+              avgDev,
+              dynamicWeight,
+              samples: count
+            };
+          }
+        });
+
+        saveCachedScores();
+        document.getElementById('calibrationBadge').innerText = "60-Tage Kalibriert ✓";
+        
+        // Berechnungen mit den neuen dynamischen Gewichten aktualisieren
+        updateEnsembleAverages();
+      } catch (err) {
+        console.warn("60-Tage-Kalibrierung im Hintergrund übersprungen:", err);
+      }
+    }
+
+    // 3. UI rendern
+    function renderBaseUI() {
+      const cur = baseData.current;
+      document.getElementById('currentTemp').innerText = Math.round(cur.temperature_2m);
+      const isNightNow = (new Date().getHours() >= 22 || new Date().getHours() < 6);
+      document.getElementById('currentIconWrapper').innerHTML = getWeatherIcon(cur.weather_code, 'w-12 h-12', isNightNow);
+      document.getElementById('currentSummary').innerText = getWeatherText(cur.weather_code);
+      document.getElementById('windSpeed').innerText = Math.round(cur.wind_speed_10m);
+      document.getElementById('humidityVal').innerText = cur.relative_humidity_2m;
+      document.getElementById('apparentTemp').innerText = `Gefühlt ${Math.round(cur.apparent_temperature)}°`;
+
+      const todayIdx = 2;
+      document.getElementById('todayHigh').innerText = `${Math.round(baseData.daily.temperature_2m_max[todayIdx])}°`;
+      document.getElementById('todayLow').innerText = `${Math.round(baseData.daily.temperature_2m_min[todayIdx])}°`;
+
+      renderHourly();
+      renderDaily();
+      lucide.createIcons();
+    }
+
+    function updateEnsembleAverages() {
+      const todayStats = getDailyStats(2);
+      if (todayStats.hasData) {
+        document.getElementById('todayHigh').innerText = `${Math.round(todayStats.weightedMax)}°`;
+        document.getElementById('todayLow').innerText = `${Math.round(todayStats.weightedMin)}°`;
+      }
+      renderHourly();
+      renderDaily();
+      lucide.createIcons();
+    }
+
+    function scrollHourly(amount) {
+      document.getElementById('hourlyContainer').scrollBy({ left: amount, behavior: 'smooth' });
+    }
+
+    function scrollDayTimeline(amount) {
+      document.getElementById('dayTimelineContainer').scrollBy({ left: amount, behavior: 'smooth' });
+    }
+
+    function scrollToCurrentHour() {
+      const currentEl = document.getElementById('hourlyCurrentEl');
+      if (currentEl) {
+        currentEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+
+    // Stündliche Leiste
+    function renderHourly() {
+      const container = document.getElementById('hourlyContainer');
+      container.innerHTML = '';
+
+      const now = new Date();
+      let currentHourIndex = baseData.hourly.time.findIndex(t => {
+        const d = new Date(t);
+        return d.getDate() === now.getDate() && d.getHours() === now.getHours();
+      });
+
+      if (currentHourIndex === -1) currentHourIndex = 48;
+
+      const startIndex = Math.max(0, currentHourIndex - 18);
+      const endIndex = Math.min(baseData.hourly.time.length, currentHourIndex + 72);
+
+      for (let i = startIndex; i < endIndex; i++) {
+        const timeDate = new Date(baseData.hourly.time[i]);
+        const isNow = (i === currentHourIndex);
+        const isPast = (i < currentHourIndex);
+        const hour = timeDate.getHours();
+        const isNight = (hour >= 22 || hour < 6);
+
+        const timeLabel = isNow ? 'JETZT' : `${hour}h`;
+        const code = baseData.hourly.weather_code[i];
+
+        const stats = getHourlyStats(i);
+        const prob = stats.hasData ? stats.weightedRainProb : (baseData.hourly.precipitation_probability ? baseData.hourly.precipitation_probability[i] : 0);
+        const temp = stats.hasData ? Math.round(stats.weightedTemp) : Math.round(baseData.hourly.temperature_2m[i]);
+
+        const col = document.createElement('div');
+        col.id = isNow ? 'hourlyCurrentEl' : '';
+        col.setAttribute('data-timestamp', timeDate.getTime());
+        col.className = `flex flex-col items-center min-w-[3.8rem] py-2 px-1 rounded-2xl transition cursor-pointer border ${
+          isNow 
+            ? 'bg-teal-500/20 border-teal-400 shadow-lg' 
+            : isPast 
+              ? 'bg-white/[0.02] border-transparent opacity-60' 
+              : 'bg-white/5 border-transparent hover:border-teal-500/30'
+        }`;
+
+        col.onclick = () => openHourlyDetail(i, `${timeDate.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })} • ${hour}:00 Uhr (${isNight ? 'Nacht' : 'Tag'})`);
+
+        col.innerHTML = `
+          <span class="text-[10px] ${isNow ? 'text-teal-300 font-bold' : isNight ? 'text-indigo-300/80' : 'text-slate-400'} mb-1">${timeLabel}</span>
+          <div class="my-1 flex items-center justify-center">${getWeatherIcon(code, 'w-6 h-6', isNight)}</div>
+          <span class="text-[11px] font-bold ${prob > 0 ? 'text-sky-400' : 'text-sky-500/40'}">${prob}%</span>
+          <span class="text-sm font-semibold mt-0.5 text-white">${temp}°</span>
+        `;
+        container.appendChild(col);
+      }
+
+      container.onscroll = () => {
+        const scrollLeft = container.scrollLeft + (container.clientWidth / 2);
+        const items = container.children;
+        for (let el of items) {
+          if (el.offsetLeft <= scrollLeft && (el.offsetLeft + el.offsetWidth) >= scrollLeft) {
+            const ts = parseInt(el.getAttribute('data-timestamp'));
+            if (ts) {
+              const d = new Date(ts);
+              const isToday = d.toDateString() === now.toDateString();
+              const isTomorrow = new Date(now.getTime() + 86400000).toDateString() === d.toDateString();
+              const prefix = isToday ? 'Heute' : isTomorrow ? 'Morgen' : d.toLocaleDateString('de-DE', { weekday: 'short' });
+              document.getElementById('hourlyCurrentDayBadge').innerText = `${prefix}, ${d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}`;
+            }
+            break;
+          }
+        }
+      };
+
+      setTimeout(() => scrollToCurrentHour(), 250);
+    }
+
+    // Ermittelt die 3 Tagesphasen:
+    function getThreePhaseDayStats(targetDate) {
+      const tDay = targetDate.getDate();
+      const tMonth = targetDate.getMonth();
+
+      let morningCodes = [], noonCodes = [], nightCodes = [];
+      let morningProbs = [], noonProbs = [], nightProbs = [];
+
+      for (let h = 0; h < baseData.hourly.time.length; h++) {
+        const d = new Date(baseData.hourly.time[h]);
+        if (d.getDate() === tDay && d.getMonth() === tMonth) {
+          const hour = d.getHours();
+          const code = baseData.hourly.weather_code[h];
+          const hStats = getHourlyStats(h);
+          const prob = hStats.hasData ? hStats.weightedRainProb : (baseData.hourly.precipitation_probability ? baseData.hourly.precipitation_probability[h] : 0);
+
+          if (hour >= 6 && hour < 12) {
+            morningCodes.push(code);
+            morningProbs.push(prob);
+          } else if (hour >= 12 && hour < 22) {
+            noonCodes.push(code);
+            noonProbs.push(prob);
+          } else {
+            nightCodes.push(code);
+            nightProbs.push(prob);
+          }
+        }
+      }
+
+      const pickDominant = (codes) => {
+        if (!codes.length) return 1;
+        const rainCode = codes.find(c => [51,53,55,61,63,65,80,81,82,95,96,99].includes(c));
+        return rainCode !== undefined ? rainCode : codes[Math.floor(codes.length / 2)];
+      };
+
+      return {
+        morningCode: pickDominant(morningCodes),
+        morningProb: morningProbs.length ? Math.max(...morningProbs) : 0,
+        noonCode: pickDominant(noonCodes),
+        noonProb: noonProbs.length ? Math.max(...noonProbs) : 0,
+        nightCode: pickDominant(nightCodes),
+        nightProb: nightProbs.length ? Math.max(...nightProbs) : 0
+      };
+    }
+
+    // 10-Tage Liste
+    function renderDaily() {
+      const container = document.getElementById('dailyContainer');
+      container.innerHTML = '';
+
+      const startIndex = 2; // Tag 2 ist Heute
+      let dayAverages = [];
+
+      for (let d = startIndex; d < baseData.daily.time.length; d++) {
+        const stats = getDailyStats(d);
+        const min = stats.hasData ? Math.round(stats.weightedMin) : Math.round(baseData.daily.temperature_2m_min[d]);
+        const max = stats.hasData ? Math.round(stats.weightedMax) : Math.round(baseData.daily.temperature_2m_max[d]);
+        dayAverages.push({ index: d, min, max });
+      }
+
+      const allMins = dayAverages.map(x => x.min);
+      const allMaxs = dayAverages.map(x => x.max);
+      const globalMin = Math.min(...allMins);
+      const globalMax = Math.max(...allMaxs);
+
+      dayAverages.forEach((item, offset) => {
+        const d = item.index;
+        const date = new Date(baseData.daily.time[d]);
+        const dayLabel = offset === 0 ? 'Heute' : date.toLocaleDateString('de-DE', { weekday: 'short' });
+        const dateStr = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+        const p = getThreePhaseDayStats(date);
+
+        const leftPercent = Math.max(0, Math.round(((item.min - globalMin) / (globalMax - globalMin || 1)) * 100));
+        const widthPercent = Math.max(12, Math.round(((item.max - item.min) / (globalMax - globalMin || 1)) * 100));
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-2.5 px-2 rounded-xl hover:bg-white/5 active:scale-[0.99] transition cursor-pointer group';
+        row.onclick = () => openDailyDetail(d);
+
+        row.innerHTML = `
+          <!-- Datum & Wochentag -->
+          <div class="w-14 flex flex-col text-left">
+            <span class="font-medium text-white group-hover:text-teal-400 transition text-sm">${dayLabel}</span>
+            <span class="text-[10px] text-slate-400">${dateStr}</span>
+          </div>
+          
+          <!-- Die 3 Phasen (Breite exakt 172px, passgenau zum Spalten-Header darüber) -->
+          <div class="flex items-center justify-between w-[172px] px-2 py-1.5 rounded-xl bg-white/[0.04] border border-white/5 shadow-inner">
+            <!-- Früh (06-12h) -->
+            <div class="flex items-center gap-1" title="Früh (06:00 – 12:00 Uhr)">
+              ${getWeatherIcon(p.morningCode, 'w-4 h-4', false)}
+              <span class="text-[10px] font-bold ${p.morningProb > 0 ? 'text-sky-400' : 'text-sky-500/40'}">${p.morningProb}%</span>
+            </div>
+            
+            <span class="text-white/15 text-[9px] select-none font-thin">•</span>
+
+            <!-- Nachmittag (12-22h) -->
+            <div class="flex items-center gap-1" title="Nachmittag (12:00 – 22:00 Uhr)">
+              ${getWeatherIcon(p.noonCode, 'w-4 h-4', false)}
+              <span class="text-[10px] font-bold ${p.noonProb > 0 ? 'text-sky-400' : 'text-sky-500/40'}">${p.noonProb}%</span>
+            </div>
+
+            <span class="text-white/15 text-[9px] select-none font-thin">•</span>
+
+            <!-- Nacht (22-06h) -->
+            <div class="flex items-center gap-1" title="Nacht (22:00 – 06:00 Uhr)">
+              ${getWeatherIcon(p.nightCode, 'w-4 h-4', true)}
+              <span class="text-[10px] font-bold ${p.nightProb > 0 ? 'text-sky-400' : 'text-sky-500/40'}">${p.nightProb}%</span>
+            </div>
+          </div>
+
+          <!-- Balken & Min/Max -->
+          <div class="flex items-center gap-1.5 flex-1 justify-end ml-2">
+            <span class="text-slate-400 text-xs w-6 text-right">${item.min}°</span>
+            <div class="w-14 h-1.5 bg-white/10 rounded-full relative overflow-hidden">
+              <div class="absolute h-full rounded-full bg-gradient-to-r from-teal-400 via-sky-400 to-indigo-400" 
+                   style="left: ${leftPercent}%; width: ${widthPercent}%;"></div>
+            </div>
+            <span class="font-bold text-xs w-6 text-left text-white">${item.max}°</span>
+          </div>
+          <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-500 ml-0.5"></i>
+        `;
+        container.appendChild(row);
+      });
+      lucide.createIcons();
+    }
+
+    // 4. Stündliche Statistik mit DYNAMISCHEM Gewicht (aus 60 Tagen Historie)
+    function getHourlyStats(hourIdx) {
+      let weightedTempSum = 0;
+      let totalWeight = 0;
+      let weightedRainScore = 0;
+      let breakdown = [];
+      let rainCount = 0;
+
+      MODEL_DEFINITIONS.forEach(m => {
+        const hourly = hourlyModelsData[m.id];
+        if (hourly && hourly.temperature_2m && hourly.temperature_2m[hourIdx] !== undefined && hourly.temperature_2m[hourIdx] !== null) {
+          const t = hourly.temperature_2m[hourIdx];
+          const r = (hourly.precipitation && hourly.precipitation[hourIdx] !== undefined && hourly.precipitation[hourIdx] !== null) ? hourly.precipitation[hourIdx] : 0;
+          
+          // DYNAMISCHES GEWICHT VERWENDEN:
+          const scoreObj = dynamicModelScores[m.id];
+          const w = scoreObj ? scoreObj.dynamicWeight : m.baseWeight;
+
+          weightedTempSum += (t * w);
+          totalWeight += w;
+
+          if (r >= 0.1) {
+            weightedRainScore += w;
+            rainCount++;
+          }
+
+          breakdown.push({ 
+            name: m.name, 
+            provider: m.provider, 
+            temp: Math.round(t), 
+            rain: r, 
+            weight: w,
+            accuracy: scoreObj ? scoreObj.accuracy : 80,
+            badge: m.badge 
+          });
+        }
+      });
+
+      if (totalWeight === 0) return { hasData: false };
+
+      return {
+        hasData: true,
+        totalActiveModels: breakdown.length,
+        rainCount,
+        weightedRainProb: Math.round((weightedRainScore / totalWeight) * 100),
+        weightedTemp: weightedTempSum / totalWeight,
+        breakdown
+      };
+    }
+
+    // 5. Tägliche Statistik mit DYNAMISCHEM Gewicht (aus 60 Tagen Historie)
+    function getDailyStats(dayIdx) {
+      let weightedMaxSum = 0;
+      let weightedMinSum = 0;
+      let totalWeight = 0;
+      let weightedRainDaysScore = 0;
+      let rainDaysCount = 0;
+      let breakdown = [];
+
+      MODEL_DEFINITIONS.forEach(m => {
+        const daily = dailyModelsData[m.id];
+        if (daily && daily.temperature_2m_max && daily.temperature_2m_max[dayIdx] !== undefined && daily.temperature_2m_max[dayIdx] !== null) {
+          const max = daily.temperature_2m_max[dayIdx];
+          const min = (daily.temperature_2m_min && daily.temperature_2m_min[dayIdx] !== null) ? daily.temperature_2m_min[dayIdx] : max;
+          const rain = (daily.precipitation_sum && daily.precipitation_sum[dayIdx] !== undefined && daily.precipitation_sum[dayIdx] !== null) ? daily.precipitation_sum[dayIdx] : 0;
+
+          // DYNAMISCHES GEWICHT VERWENDEN:
+          const scoreObj = dynamicModelScores[m.id];
+          const w = scoreObj ? scoreObj.dynamicWeight : m.baseWeight;
+
+          weightedMaxSum += (max * w);
+          weightedMinSum += (min * w);
+          totalWeight += w;
+
+          if (rain >= 0.5) {
+            weightedRainDaysScore += w;
+            rainDaysCount++;
+          }
+
+          breakdown.push({ 
+            name: m.name, 
+            provider: m.provider, 
+            max: Math.round(max), 
+            min: Math.round(min), 
+            rain, 
+            weight: w,
+            accuracy: scoreObj ? scoreObj.accuracy : 80,
+            badge: m.badge 
+          });
+        }
+      });
+
+      if (totalWeight === 0) return { hasData: false };
+
+      return {
+        hasData: true,
+        totalActiveModels: breakdown.length,
+        rainDaysCount,
+        weightedRainProb: Math.round((weightedRainDaysScore / totalWeight) * 100),
+        weightedMax: weightedMaxSum / totalWeight,
+        weightedMin: weightedMinSum / totalWeight,
+        breakdown
+      };
+    }
+
+    // 6. Stundendetail
+    function openHourlyDetail(hourIdx, timeLabel) {
+      currentSelectedDayIndex = null;
+      document.getElementById('btnPrevDay').classList.add('hidden');
+      document.getElementById('btnNextDay').classList.add('hidden');
+      document.getElementById('swipeHint').classList.add('hidden');
+      document.getElementById('dayTimelineSection').classList.add('hidden');
+
+      const stats = getHourlyStats(hourIdx);
+
+      document.getElementById('modalTypeBadge').innerText = "Stündlicher Abgleich";
+      document.getElementById('modalTitle').innerText = timeLabel;
+      document.getElementById('modalSub').innerText = "Dynamisch gewichteter Schnitt (60 Tage Backtest)";
+
+      const listEl = document.getElementById('modelBreakdown');
+      const countEl = document.getElementById('activeSourcesCount');
+      listEl.innerHTML = '';
+
+      if (stats.hasData && stats.totalActiveModels > 0) {
+        countEl.innerText = `${stats.totalActiveModels} Quellen aktiv`;
+        document.getElementById('modalMorningProb').innerText = `${stats.weightedRainProb}%`;
+        document.getElementById('modalNoonProb').innerText = `--`;
+        document.getElementById('modalNightProb').innerText = `--`;
+        document.getElementById('modalProbabilityText').innerText = 
+          `${stats.rainCount} von ${stats.totalActiveModels} aktiven Wetterdiensten erwarten Niederschlag (≥ 0,1 mm). Errechneter Schnitt: ${Math.round(stats.weightedTemp)}°C.`;
+
+        stats.breakdown.sort((a, b) => b.weight - a.weight);
+
+        stats.breakdown.forEach(item => {
+          const row = document.createElement('div');
+          row.className = 'flex justify-between items-center p-3 rounded-2xl bg-white/5 border border-white/5';
+          row.innerHTML = `
+            <div>
+              <div class="font-semibold text-white flex items-center gap-1.5">
+                ${item.name}
+                <span class="text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-bold">${item.accuracy}% Quote</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">${item.provider}</div>
+              <div class="text-xs text-sky-400 font-medium mt-1">
+                ${item.rain >= 0.1 ? `🌧️ ${item.rain.toFixed(1)} mm Regen` : '☀️ Trocken (0.0 mm)'}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-xl font-bold text-white">${item.temp}°</div>
+              <div class="text-[10px] text-teal-400 font-medium">Dynamisches Gewicht: x${item.weight}</div>
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+      }
+
+      document.getElementById('detailModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    // 7. Tages-Detail
+    function openDailyDetail(dayIdx) {
+      currentSelectedDayIndex = dayIdx;
+      const targetDate = new Date(baseData.daily.time[dayIdx]);
+      const isToday = (dayIdx === 2);
+      const dayLabel = isToday ? 'Heute' : targetDate.toLocaleDateString('de-DE', { weekday: 'short' });
+      const dateStr = targetDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+      document.getElementById('btnPrevDay').classList.remove('hidden');
+      document.getElementById('btnNextDay').classList.remove('hidden');
+      document.getElementById('swipeHint').classList.remove('hidden');
+
+      document.getElementById('btnPrevDay').style.opacity = (dayIdx <= 2) ? '0.3' : '1';
+      document.getElementById('btnNextDay').style.opacity = (dayIdx >= baseData.daily.time.length - 1) ? '0.3' : '1';
+
+      document.getElementById('modalTypeBadge').innerText = "Tages-Detail";
+      document.getElementById('modalTitle').innerText = `${dayLabel}, ${dateStr}`;
+      document.getElementById('modalSub').innerText = "Trend & dynamisch kalibrierter Modellabgleich";
+
+      const timelineSection = document.getElementById('dayTimelineSection');
+      const timelineContainer = document.getElementById('dayTimelineContainer');
+      timelineContainer.innerHTML = '';
+      timelineSection.classList.remove('hidden');
+
+      const targetDay = targetDate.getDate();
+      const targetMonth = targetDate.getMonth();
+
+      for (let h = 0; h < baseData.hourly.time.length; h++) {
+        const d = new Date(baseData.hourly.time[h]);
+        if (d.getDate() === targetDay && d.getMonth() === targetMonth) {
+          if (d.getHours() % 2 === 0) {
+            const hStats = getHourlyStats(h);
+            const temp = hStats.hasData ? Math.round(hStats.weightedTemp) : Math.round(baseData.hourly.temperature_2m[h]);
+            const prob = hStats.hasData ? hStats.weightedRainProb : (baseData.hourly.precipitation_probability ? baseData.hourly.precipitation_probability[h] : 0);
+            const code = baseData.hourly.weather_code[h];
+            const isNight = (d.getHours() >= 22 || d.getHours() < 6);
+
+            const cell = document.createElement('div');
+            cell.className = `flex flex-col items-center min-w-[3.4rem] p-1.5 rounded-xl border ${isNight ? 'bg-indigo-950/20 border-indigo-500/20' : 'bg-white/5 border-white/5'} active:bg-white/10 cursor-pointer`;
+            cell.onclick = () => openHourlyDetail(h, `${d.getHours()}:00 Uhr (${dayLabel})`);
+
+            cell.innerHTML = `
+              <span class="text-[10px] ${isNight ? 'text-indigo-300 font-medium' : 'text-slate-400 font-medium'}">${d.getHours()}h</span>
+              <div class="my-1 flex items-center justify-center">${getWeatherIcon(code, 'w-5 h-5', isNight)}</div>
+              <span class="text-[10px] font-bold ${prob > 0 ? 'text-sky-400' : 'text-sky-500/40'}">${prob}%</span>
+              <span class="text-xs font-semibold text-white mt-0.5">${temp}°</span>
+            `;
+            timelineContainer.appendChild(cell);
+          }
+        }
+      }
+
+      const p = getThreePhaseDayStats(targetDate);
+      const stats = getDailyStats(dayIdx);
+      const listEl = document.getElementById('modelBreakdown');
+      const countEl = document.getElementById('activeSourcesCount');
+      listEl.innerHTML = '';
+
+      document.getElementById('modalMorningProb').innerText = `${p.morningProb}%`;
+      document.getElementById('modalNoonProb').innerText = `${p.noonProb}%`;
+      document.getElementById('modalNightProb').innerText = `${p.nightProb}%`;
+
+      if (stats.hasData && stats.totalActiveModels > 0) {
+        countEl.innerText = `${stats.totalActiveModels} Quellen aktiv`;
+        document.getElementById('modalProbabilityText').innerText = 
+          `Regenrisiko im Tagesverlauf: Früh (06–12 Uhr) ${p.morningProb}%, Nachmittag (12–22 Uhr) ${p.noonProb}%, Nacht (22–06 Uhr) ${p.nightProb}%. Dynamisch gewichteter Schnitt: Max ${Math.round(stats.weightedMax)}°C / Min ${Math.round(stats.weightedMin)}°C.`;
+
+        stats.breakdown.sort((a, b) => b.weight - a.weight);
+
+        stats.breakdown.forEach(item => {
+          const row = document.createElement('div');
+          row.className = 'flex justify-between items-center p-3 rounded-2xl bg-white/5 border border-white/5';
+          row.innerHTML = `
+            <div>
+              <div class="font-semibold text-white flex items-center gap-1.5">
+                ${item.name}
+                <span class="text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-bold">${item.accuracy}% Quote</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">${item.provider}</div>
+              <div class="text-xs text-sky-400 font-medium mt-1">
+                ${item.rain >= 0.5 ? `🌧️ ${item.rain.toFixed(1)} mm erwartet` : '☀️ Trocken (< 0,5 mm)'}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-base font-bold text-white">${item.max}° <span class="text-xs text-slate-400 font-normal">/ ${item.min}°</span></div>
+              <div class="text-[10px] text-teal-400 font-medium">Dynamisches Gewicht: x${item.weight}</div>
+            </div>
+          `;
+          listEl.appendChild(row);
+        });
+      }
+
+      document.getElementById('detailModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function navigateDay(direction) {
+      if (currentSelectedDayIndex === null) return;
+      const nextIdx = currentSelectedDayIndex + direction;
+      if (nextIdx >= 2 && nextIdx < baseData.daily.time.length) {
+        openDailyDetail(nextIdx);
+      }
+    }
+
+    function setupModalSwipeGestures() {
+      const modalSheet = document.getElementById('modalSheet');
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchEndX = 0;
+      let touchEndY = 0;
+
+      modalSheet.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+
+      modalSheet.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
+        handleSwipeGesture();
+      }, { passive: true });
+
+      function handleSwipeGesture() {
+        if (currentSelectedDayIndex === null) return;
+        const diffX = touchEndX - touchStartX;
+        const diffY = touchEndY - touchStartY;
+
+        if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+          if (diffX < 0) {
+            navigateDay(1);
+          } else {
+            navigateDay(-1);
+          }
+        }
+      }
+    }
+
+    function closeModal(e) {
+      document.getElementById('detailModal').classList.add('hidden');
+    }
+
+    // ================= 8. HISTORISCHE DATEN ANSICHT =================
+    async function openHistoryView() {
+      document.getElementById('viewMain').classList.add('hidden');
+      document.getElementById('viewHistory').classList.remove('hidden');
+      window.scrollTo(0, 0);
+
+      const pastList = document.getElementById('pastDaysContainer');
+      const leaderboard = document.getElementById('leaderboardList');
+
+      renderLeaderboard();
+
+      if (historyArchiveData && historyArchiveData.time) {
+        renderPast10DaysList();
+      } else {
+        pastList.innerHTML = `<div class="text-center py-6 text-xs text-slate-400 animate-pulse">Lade Messdaten...</div>`;
+        await calibrateWeightsFrom60DaysHistory();
+        renderLeaderboard();
+        renderPast10DaysList();
+      }
+    }
+
+    function renderPast10DaysList() {
+      const pastList = document.getElementById('pastDaysContainer');
+      pastList.innerHTML = '';
+      const t = historyArchiveData;
+      if (!t || !t.time) return;
+
+      // Zeige die letzten 14 Tage zur detaillierten Ansicht
+      const count = Math.min(14, t.time.length);
+      const startIdx = t.time.length - 1;
+
+      for (let i = startIdx; i >= startIdx - count + 1; i--) {
+        const date = new Date(t.time[i]);
+        const dayLabel = date.toLocaleDateString('de-DE', { weekday: 'short' });
+        const dateStr = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        const code = t.weather_code ? t.weather_code[i] : 0;
+        const max = Math.round(t.temperature_2m_max[i]);
+        const min = Math.round(t.temperature_2m_min[i]);
+        const rain = t.precipitation_sum[i] ? t.precipitation_sum[i].toFixed(1) : '0.0';
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-3 px-2 rounded-xl hover:bg-white/5 active:scale-[0.99] transition cursor-pointer group';
+        row.onclick = () => openPastDayDetail(i, dayLabel, dateStr, max, min, rain, code);
+
+        row.innerHTML = `
+          <div class="w-20 flex flex-col text-left">
+            <span class="font-medium text-white group-hover:text-teal-400 transition">${dayLabel}</span>
+            <span class="text-[10px] text-slate-400">${dateStr}</span>
+          </div>
+          <div class="flex items-center gap-1.5 w-10 justify-center">
+            ${getWeatherIcon(code, 'w-5 h-5', false)}
+          </div>
+          <div class="flex items-center gap-1 text-xs text-sky-400 w-24 justify-center">
+            <i data-lucide="droplets" class="w-3.5 h-3.5"></i>
+            <span>${rain} mm</span>
+          </div>
+          <div class="flex gap-2 text-xs font-semibold text-right">
+            <span class="text-slate-400">${min}°</span>
+            <span class="text-white">${max}°</span>
+          </div>
+          <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500 ml-1"></i>
+        `;
+        pastList.appendChild(row);
+      }
+      lucide.createIcons();
+    }
+
+    function openPastDayDetail(dayIdx, dayLabel, dateStr, actualMax, actualMin, actualRain, code) {
+      currentSelectedDayIndex = null;
+      document.getElementById('btnPrevDay').classList.add('hidden');
+      document.getElementById('btnNextDay').classList.add('hidden');
+      document.getElementById('swipeHint').classList.add('hidden');
+      document.getElementById('dayTimelineSection').classList.add('hidden');
+
+      document.getElementById('modalTypeBadge').innerText = "Rückblick & Abgleich";
+      document.getElementById('modalTitle').innerText = `${dayLabel}, ${dateStr}`;
+      document.getElementById('modalSub').innerText = "Tatsächliches Wetter vs. Vorhersagen der Quellen";
+
+      const listEl = document.getElementById('modelBreakdown');
+      const countEl = document.getElementById('activeSourcesCount');
+      listEl.innerHTML = '';
+      countEl.innerText = '';
+
+      document.getElementById('modalMorningProb').innerText = `${actualMax}°C`;
+      document.getElementById('modalNoonProb').innerText = `Max`;
+      document.getElementById('modalNightProb').innerText = `${actualMin}°C`;
+      document.getElementById('modalProbabilityText').innerText = `Tatsächlich gemessener Niederschlag: ${actualRain} mm. Genauigkeit der einzelnen Plattformen für diesen Tag:`;
+
+      let correctCount = 0;
+
+      historyModelsData.forEach(m => {
+        if (m.daily && m.daily.temperature_2m_max && m.daily.temperature_2m_max[dayIdx] !== undefined && m.daily.temperature_2m_max[dayIdx] !== null) {
+          const predMax = Math.round(m.daily.temperature_2m_max[dayIdx]);
+          const predMin = (m.daily.temperature_2m_min && m.daily.temperature_2m_min[dayIdx] !== null) ? Math.round(m.daily.temperature_2m_min[dayIdx]) : predMax;
+          const predRain = m.daily.precipitation_sum[dayIdx] ? m.daily.precipitation_sum[dayIdx] : 0;
+
+          const diff = Math.abs(predMax - actualMax);
+          const hadRainActual = parseFloat(actualRain) >= 0.5;
+          const hadRainPred = predRain >= 0.5;
+          const isHit = diff <= 1.5 && (hadRainActual === hadRainPred);
+          if (isHit) correctCount++;
+
+          const row = document.createElement('div');
+          row.className = `flex justify-between items-center p-3 rounded-2xl border ${
+            isHit ? 'bg-teal-950/20 border-teal-500/30' : 'bg-white/5 border-white/5'
+          }`;
+
+          row.innerHTML = `
+            <div>
+              <div class="font-semibold text-white flex items-center gap-1.5">
+                ${m.name}
+                ${isHit ? '<span class="text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-bold">Volltreffer</span>' : ''}
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">${m.provider}</div>
+              <div class="text-xs text-sky-400 mt-1">
+                Prognose Regen: <strong class="text-sky-300">${predRain.toFixed(1)} mm</strong>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-base font-bold text-white">${predMax}° <span class="text-xs text-slate-400 font-normal">/ ${predMin}°</span></div>
+              <div class="text-[10px] ${diff <= 1.5 ? 'text-teal-400' : 'text-rose-300'} font-medium">Abweichung: &plusmn;${diff}°C</div>
+            </div>
+          `;
+          listEl.appendChild(row);
+        }
+      });
+
+      document.getElementById('detailModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function renderLeaderboard() {
+      const listEl = document.getElementById('leaderboardList');
+      listEl.innerHTML = '';
+
+      let scores = [];
+
+      MODEL_DEFINITIONS.forEach(m => {
+        const sc = dynamicModelScores[m.id];
+        scores.push({
+          name: m.name,
+          provider: m.provider,
+          baseWeight: m.baseWeight,
+          accuracy: sc ? sc.accuracy : 80,
+          avgDev: sc ? sc.avgDev : 1.5,
+          dynamicWeight: sc ? sc.dynamicWeight : m.baseWeight,
+          samples: sc ? sc.samples : 0
+        });
+      });
+
+      scores.sort((a, b) => b.accuracy - a.accuracy);
+
+      scores.forEach((s, idx) => {
+        const rankBadge = idx === 0 
+          ? 'bg-amber-400/20 text-amber-300 border-amber-400/30' 
+          : idx === 1 
+            ? 'bg-slate-300/20 text-slate-200 border-slate-300/30' 
+            : idx === 2 
+              ? 'bg-amber-700/20 text-amber-500 border-amber-700/30' 
+              : 'bg-white/5 text-slate-400 border-transparent';
+
+        const card = document.createElement('div');
+        card.className = 'flex items-center justify-between p-3.5 rounded-2xl bg-white/5 border border-white/5';
+        card.innerHTML = `
+          <div class="flex items-center gap-3">
+            <span class="w-7 h-7 rounded-xl border flex items-center justify-center font-bold text-xs ${rankBadge}">
+              ${idx + 1}
+            </span>
+            <div>
+              <div class="font-semibold text-white flex items-center gap-1.5 text-sm">
+                ${s.name}
+                ${idx === 0 ? '<i data-lucide="award" class="w-4 h-4 text-amber-400"></i>' : ''}
+              </div>
+              <div class="text-[11px] text-slate-400">${s.provider}</div>
+              <div class="text-[10px] text-teal-400/90 mt-0.5">
+                Stimmgewicht: <strong>x${s.dynamicWeight}</strong> (Basis: x${s.baseWeight}) &bull; &plusmn;${s.avgDev}&deg;C
+              </div>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-xl font-bold ${s.accuracy >= 85 ? 'text-teal-400' : 'text-sky-300'}">${s.accuracy}%</div>
+            <div class="text-[10px] text-slate-400 uppercase tracking-wider font-medium">60-Tage Quote</div>
+          </div>
+        `;
+        listEl.appendChild(card);
+      });
+      lucide.createIcons();
+    }
+
+    function closeHistoryView() {
+      document.getElementById('viewHistory').classList.add('hidden');
+      document.getElementById('viewMain').classList.remove('hidden');
+    }
+
+    // 9. Ortssuche
+    function setupSearch() {
+      const input = document.getElementById('citySearch');
+      const box = document.getElementById('suggestions');
+      let timer;
+
+      input.addEventListener('input', (e) => {
+        clearTimeout(timer);
+        const q = e.target.value.trim();
+        if (q.length < 2) {
+          box.classList.add('hidden');
+          return;
+        }
+
+        timer = setTimeout(async () => {
+          try {
+            const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=de&format=json`);
+            const d = await res.json();
+            if (d.results && d.results.length > 0) {
+              box.innerHTML = '';
+              d.results.forEach(loc => {
+                const row = document.createElement('div');
+                row.className = 'p-3 hover:bg-white/10 active:bg-white/20 cursor-pointer text-sm';
+                row.innerText = `${loc.name}, ${loc.country || ''} ${loc.admin1 ? `(${loc.admin1})` : ''}`;
+                row.onclick = () => {
+                  currentCoords = { lat: loc.latitude, lon: loc.longitude, name: loc.name };
+                  document.getElementById('gpsIcon').classList.add('hidden');
+                  localStorage.setItem("nexus_weather_loc", JSON.stringify(currentCoords));
+                  box.classList.add('hidden');
+                  input.value = '';
+                  initDefaultWeights();
+                  loadCachedScores();
+                  fetchWeatherData();
+                };
+                box.appendChild(row);
+              });
+              box.classList.remove('hidden');
+            }
+          } catch(e){}
+        }, 300);
+      });
+    }
+
+    // Kristallklare Vektor-Icons
+    function getWeatherIcon(code, sizeClass = 'w-5 h-5', isNight = false) {
+      if (code === 0) {
+        return isNight 
+          ? `<i data-lucide="moon" class="${sizeClass} text-indigo-300"></i>`
+          : `<i data-lucide="sun" class="${sizeClass} text-amber-400"></i>`;
+      }
+      if (code === 1 || code === 2) {
+        return isNight 
+          ? `<i data-lucide="cloud-moon" class="${sizeClass} text-indigo-300"></i>`
+          : `<i data-lucide="cloud-sun" class="${sizeClass} text-amber-300"></i>`;
+      }
+      if (code === 3) {
+        return `<i data-lucide="cloud" class="${sizeClass} text-slate-300"></i>`;
+      }
+      if (code === 45 || code === 48) {
+        return `<i data-lucide="cloud-fog" class="${sizeClass} text-slate-300"></i>`;
+      }
+      if ([51, 53, 55].includes(code)) {
+        return `<i data-lucide="cloud-drizzle" class="${sizeClass} text-sky-400"></i>`;
+      }
+      if ([61, 63, 65, 80, 81, 82].includes(code)) {
+        return `<i data-lucide="cloud-rain" class="${sizeClass} text-cyan-400"></i>`;
+      }
+      if ([71, 73, 75, 85, 86].includes(code)) {
+        return `<i data-lucide="cloud-snow" class="${sizeClass} text-blue-200"></i>`;
+      }
+      if ([95, 96, 99].includes(code)) {
+        return `<i data-lucide="cloud-lightning" class="${sizeClass} text-amber-400"></i>`;
+      }
+      return isNight 
+        ? `<i data-lucide="moon" class="${sizeClass} text-indigo-300"></i>`
+        : `<i data-lucide="cloud-sun" class="${sizeClass} text-slate-300"></i>`;
+    }
+
+    function getWeatherText(c) {
+      if (c === 0) return 'Sonnig / Klar';
+      if ([1, 2].includes(c)) return 'Leicht bewölkt';
+      if (c === 3) return 'Bedeckt';
+      if ([45, 48].includes(c)) return 'Nebelig';
+      if ([51, 53, 55].includes(c)) return 'Leichter Nieselregen';
+      if ([61, 63, 65].includes(c)) return 'Regen';
+      if ([71, 73, 75].includes(c)) return 'Schneefall';
+      if ([95, 96, 99].includes(c)) return 'Gewitter';
+      return 'Heiter';
+    }
+  </script>
+</body>
+</html>
